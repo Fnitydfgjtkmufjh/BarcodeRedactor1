@@ -165,14 +165,18 @@ class BarcodeDetector:
                 continue
             # zxing reports the scan line(s) for linear codes: recover the full bar height.
             cx, cy, L, h, th = _poly_frame(poly * scale)
+            if L / ppmm < 5.0:  # too short to be a real linear symbol: decoder noise
+                continue
             res = self._analyze(ga, ppmm, cx, cy, max(L, 5), max(h, 1), th, sens=1.0,
                                 search_mm=max(15.0, 0.6 * L / ppmm))
             if res is not None and res.ratio >= 1.0:
-                p = res.polygon / scale
+                p, conf = res.polygon / scale, 1.0
             else:
+                # Decoded but the bars could not be confirmed in the image: still redact (safer),
+                # but with low confidence so the page is sent to review.
                 hh = max(h, 0.3 * L)
-                p = _rect_poly(cx, cy, L * 1.04, hh, th) / scale
-            cands.append(Candidate(p.astype(np.float32), "1d", {"decoded"}, 1.0, fmt))
+                p, conf = _rect_poly(cx, cy, L * 1.04, hh, th) / scale, 0.5
+            cands.append(Candidate(p.astype(np.float32), "1d", {"decoded"}, conf, fmt))
 
         # ---- Method B: visual -----------------------------------------------------------
         proposals = self._proposals(ga, ppmm)
@@ -224,10 +228,15 @@ class BarcodeDetector:
         # Faded/low-contrast scans: a contrast-stretched variant often decodes when the original does not.
         variants.append(cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8)).apply(img))
         seen: list[np.ndarray] = []
+        formats = _zxing_formats(self.config.detect_2d)
         for var in variants:
             try:
                 try:
-                    results = zxingcpp.read_barcodes(var, try_rotate=True, try_downscale=True)
+                    if formats is not None:
+                        results = zxingcpp.read_barcodes(var, formats=formats, try_rotate=True,
+                                                         try_downscale=True)
+                    else:
+                        results = zxingcpp.read_barcodes(var, try_rotate=True, try_downscale=True)
                 except TypeError:  # older API
                     results = zxingcpp.read_barcodes(var)
             except Exception as e:  # pragma: no cover
@@ -241,6 +250,8 @@ class BarcodeDetector:
                                  [p.bottom_right.x, p.bottom_right.y], [p.bottom_left.x, p.bottom_left.y]],
                                 np.float32) / f
                 fmt = getattr(r.format, "name", None) or str(r.format).split(".")[-1]
+                if fmt not in _ALLOWED_1D and fmt not in _ALLOWED_2D:
+                    continue  # e.g. DataBar / DXFilmEdge: frequent false reads on noisy scans
                 kind = "2d" if _is_2d_format(fmt) else "1d"
                 if any(overlap_ratio(poly, q) > 0.5 for q in seen if poly_area(q) > 4 and poly_area(poly) > 4):
                     continue
@@ -537,6 +548,26 @@ def _order_poly(pts: np.ndarray, theta: float) -> np.ndarray:
     br = pts[np.argmax(u + v)]
     bl = pts[np.argmax(-u + v)]
     return np.array([tl, tr, br, bl], np.float32)
+
+
+# Symbologies used on documents/labels. Exotic ones (DataBar, DXFilmEdge, MaxiCode …) are
+# excluded: on noisy or faded scans the decoder "finds" them in text and speckle.
+_ALLOWED_1D = ("Code128", "Code39", "Code93", "Codabar", "EAN8", "EAN13", "UPCA", "UPCE", "ITF")
+_ALLOWED_2D = ("QRCode", "MicroQRCode", "DataMatrix", "PDF417", "Aztec")
+
+
+def _zxing_formats(include_2d: bool):
+    if zxingcpp is None:
+        return None
+    try:
+        names = _ALLOWED_1D + (_ALLOWED_2D if include_2d else ())
+        flags = [getattr(zxingcpp.BarcodeFormat, n) for n in names if hasattr(zxingcpp.BarcodeFormat, n)]
+        out = flags[0]
+        for fl in flags[1:]:
+            out = out | fl
+        return out
+    except Exception:
+        return None  # fall back to all formats + the name filter
 
 
 _2D = {"QRCode", "MicroQRCode", "RMQRCode", "rMQRCode", "DataMatrix", "Aztec", "PDF417", "MaxiCode"}
