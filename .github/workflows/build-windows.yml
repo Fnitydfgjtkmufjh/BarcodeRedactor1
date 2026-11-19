@@ -39,6 +39,9 @@ jobs:
         run: python -m pytest -v tests
 
       - name: Detection evaluation report
+        continue-on-error: true
+        env:
+          PYTHONIOENCODING: utf-8
         run: python tools/evaluate.py --seeds 3 --out evaluation_ci.md
 
       - name: Build single-file exe

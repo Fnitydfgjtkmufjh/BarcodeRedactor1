@@ -10,8 +10,14 @@ import sys
 def _fix_std_streams() -> None:
     # A windowed (no-console) executable has no stdout/stderr; some libraries write to them anyway.
     for name in ("stdout", "stderr"):
-        if getattr(sys, name) is None:
+        stream = getattr(sys, name)
+        if stream is None:
             setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
+        else:  # Windows consoles default to cp1252: never crash on non-ASCII file names
+            try:
+                stream.reconfigure(errors="replace")
+            except Exception:
+                pass
 
 
 def run_gui() -> int:

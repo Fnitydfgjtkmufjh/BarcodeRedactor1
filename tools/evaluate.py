@@ -174,6 +174,10 @@ def main():
     ]
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     Path(a.out).write_text("\n".join(md) + "\n", encoding="utf-8")
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except Exception:
+        pass
     print("\n".join(md))
 
 
