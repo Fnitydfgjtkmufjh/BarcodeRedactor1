@@ -83,10 +83,17 @@ jobs:
           name: BarcodeRedactor-portable-folder
           path: dist/BarcodeRedactor_portable.zip
 
-      - name: Publish release (tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish release (version tags, or a commit message containing [release])
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[release]'))
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.0.0' }}
+          name: Barcode Redactor ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.0.0' }}
+          target_commitish: ${{ github.sha }}
+          body: |
+            Download **BarcodeRedactor.exe** below and double-click it – nothing to install.
+            The portable-folder zip starts faster (unzip, then run BarcodeRedactor.exe inside).
+            Built and self-tested automatically by GitHub Actions on Windows.
           files: |
             dist/BarcodeRedactor.exe
             dist/BarcodeRedactor_portable.zip
