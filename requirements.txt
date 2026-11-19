@@ -1,0 +1,9 @@
+# Runtime dependencies (all bundled into BarcodeRedactor.exe by PyInstaller)
+PySide6-Essentials>=6.6,<7        # GUI (LGPL-3.0)
+opencv-python-headless>=4.9,<5    # visual detection (Apache-2.0)
+zxing-cpp>=2.2,<3                 # barcode decoding (Apache-2.0)
+pypdfium2>=4.25,<6                # PDF rendering (Apache-2.0 / BSD-3-Clause)
+img2pdf>=0.5                      # lossless image-only PDF writing (LGPL-3.0)
+pikepdf>=8                        # used by img2pdf (MPL-2.0)
+Pillow>=10.1                      # image I/O (MIT-CMU)
+numpy>=1.26

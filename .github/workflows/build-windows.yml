@@ -1,0 +1,90 @@
+name: Build Windows executable
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-build.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-build.txt
+
+      - name: Generate icon
+        run: python tools/make_icon.py
+
+      - name: Run tests (engine + headless GUI)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -v tests
+
+      - name: Detection evaluation report
+        run: python tools/evaluate.py --seeds 3 --out evaluation_ci.md
+
+      - name: Build single-file exe
+        run: pyinstaller --noconfirm --clean --workpath build/onefile packaging/BarcodeRedactor.spec
+
+      - name: Build portable folder
+        env:
+          BR_ONEDIR: "1"
+        run: pyinstaller --noconfirm --clean --workpath build/onedir packaging/BarcodeRedactor.spec
+
+      - name: Self-test the executables (proves bundled native libraries load)
+        shell: pwsh
+        run: |
+          foreach ($exe in @("dist\BarcodeRedactor.exe", "dist\BarcodeRedactor_portable\BarcodeRedactor.exe")) {
+            $out = "$exe.selftest.txt"
+            $p = Start-Process -FilePath $exe -ArgumentList "--self-test","--out",$out -Wait -PassThru
+            Get-Content $out
+            if ($p.ExitCode -ne 0) { throw "Self-test failed for $exe" }
+          }
+
+      - name: Package artifacts
+        shell: pwsh
+        run: |
+          Copy-Item README.md, THIRD_PARTY_LICENSES.md, LICENSE dist\BarcodeRedactor_portable\
+          Compress-Archive -Path dist\BarcodeRedactor_portable\* -DestinationPath dist\BarcodeRedactor_portable.zip
+          Get-ChildItem dist | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BarcodeRedactor-exe
+          path: |
+            dist/BarcodeRedactor.exe
+            THIRD_PARTY_LICENSES.md
+            dist/*.selftest.txt
+            evaluation_ci.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BarcodeRedactor-portable-folder
+          path: dist/BarcodeRedactor_portable.zip
+
+      - name: Publish release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/BarcodeRedactor.exe
+            dist/BarcodeRedactor_portable.zip
+            THIRD_PARTY_LICENSES.md
